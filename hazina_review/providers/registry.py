@@ -339,9 +339,8 @@ def resolve(provider: str) -> str:
     if not found:
         raise ProviderUnavailable(
             f"the `{command_name(provider)}` command is not on this machine. Install it and "
-            f"sign in. This "
-            f"run stops here rather than reporting an empty result that would read as "
-            f"'nothing was found'."
+            f"sign in. This run stops here rather than reporting an empty result that would "
+            f"read as 'nothing was found'."
         )
     return found
 
@@ -461,18 +460,19 @@ def _status_config(known: Provider, operator_env: bool):
 
 
 @functools.cache
-def confined(executable: str) -> bool:
+def confined(provider: str, executable: str) -> bool:
     """Whether the command, given a folder of its own, takes up the read-only agent in it.
-    Asked once per run with no model call; every turn asks again of its own folder."""
+    Asked once per run with no model call, and needing no sign-in; every turn asks again of
+    its own folder."""
     with antigravity.private_config() as (folder, name):
-        return antigravity.sees_agent(executable, folder, name, provider_env("antigravity"))
+        return antigravity.sees_agent(executable, folder, name, provider_env(provider))
 
 
 def takes_its_agent(provider: str, executable: str) -> bool | None:
     """`confined` for a command given a folder of its own, or None for any other."""
     if not _known(provider).private_config:
         return None
-    return confined(executable)
+    return confined(provider, executable)
 
 
 def isolation_flags(provider: str, executable: str) -> list[str]:

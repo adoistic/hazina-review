@@ -26,8 +26,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 - The census reads an error the provider gives as a plain string in its JSON answer. It also
-  files `please sign in`, `authentication required`, `unauthenticated` and `resource exhausted`
-  under the existing failure kinds.
+  files agy's own failures under the existing kinds, matched exactly as agy prints them:
+  `Please sign in to`, `Authentication required.` and `UNAUTHENTICATED` as sign-in failures;
+  `RESOURCE_EXHAUSTED` as a usage limit; `UNAVAILABLE`, `DEADLINE_EXCEEDED` and
+  `"retryable": true` as transient. A census session that stopped at a refused action
+  (`denied_actions`) is tried again.
 
 ## [0.1.4] - 2026-10-01
 

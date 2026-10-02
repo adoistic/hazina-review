@@ -569,3 +569,15 @@ def test_a_retryable_failure_is_tried_again_and_plain_words_are_not_read_as_one(
         True,
     )
     assert census.classify(1, "the cache was unavailable for a moment", "")[0] == "unknown"
+
+
+@pytest.mark.parametrize(
+    "words",
+    [
+        "the endpoint lets an unauthenticated client write two fields",
+        "authentication required before the export runs",
+        "a worker pool whose resource exhausted path drops jobs",
+    ],
+)
+def test_a_models_own_words_about_sign_in_or_resources_are_not_its_failure(words):
+    assert census.classify(1, words, "")[0] == "unknown"

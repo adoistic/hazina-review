@@ -21,8 +21,9 @@ Rules for the whole task:
 
 STEP 1. Folders and repositories
 - WORKSPACE = the absolute path of the folder open in this workspace.
-- WORK = a folder called hazina-review-work in my home folder (macOS/Linux: ~/hazina-review-work,
-  Windows: %USERPROFILE%\hazina-review-work). It must not be inside WORKSPACE. Create it.
+- WORK = a folder called hazina-review-antigravity in my home folder (macOS/Linux:
+  ~/hazina-review-antigravity, Windows: %USERPROFILE%\hazina-review-antigravity). It must not be
+  inside WORKSPACE. Create it if it is not there; if it is, keep what is in it.
 - Find the git repositories directly inside WORKSPACE (folders that contain .git; skip hidden
   folders). If WORKSPACE is itself a git repository, it is the only one. Show me the list and the
   count, then carry on.
@@ -71,7 +72,9 @@ STEP 7. Run. Start it so it keeps going in the background with its output in fil
     nohup hazina-review --provider antigravity --all "<WORK>/repos" --out "<WORK>/hazina-review-out" > "<WORK>/run.log" 2>&1 &
 - Windows (PowerShell):
     Start-Process -WindowStyle Hidden -FilePath "$env:USERPROFILE\.local\bin\hazina-review.exe" -ArgumentList '--provider','antigravity','--all',"`"<WORK>\repos`"",'--out',"`"<WORK>\hazina-review-out`"" -RedirectStandardError "<WORK>\run.log" -RedirectStandardOutput "<WORK>\run-result.log"
-  (On Windows the progress goes to run.log and the closing "Zip to send" line to run-result.log.)
+  (On Windows the progress goes to run.log and the closing "Zip to send" line to run-result.log.
+  If that form fails on this machine, start it in the background any other way that keeps it
+  running after this chat and saves its output to files.)
 It writes progress lines such as "[3/12] my-repo: task mining done in 4m 10s". Read the end of
 the log every 10 minutes or so and give me one line of progress each time. Never start a
 second run while one is still going.
@@ -94,8 +97,8 @@ Leave the WORK folder where it is. You are done.
 ## Notes for whoever hands this out
 
 - The AI use counts against the Antigravity account that `agy` is signed in to.
-- The run uses fresh clones in `~/hazina-review-work`, so the build check, which installs
+- The run uses fresh clones in `~/hazina-review-antigravity`, so the build check, which installs
   dependencies and runs each project's tests, can take disk space but never touches the
   originals.
-- `hazina-review --resume ~/hazina-review-work/hazina-review-out` carries on after any stop.
+- `hazina-review --resume ~/hazina-review-antigravity/hazina-review-out` carries on after any stop.
   Finished repositories are kept.

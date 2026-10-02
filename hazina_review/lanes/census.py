@@ -85,21 +85,28 @@ _KIND_RULES: tuple[tuple[re.Pattern, str, bool], ...] = (
         re.compile(
             r"invalid[ _-]?api[ _-]?key|authentication_error|permission_error|unauthorized|"
             r"\b40[13]\b|not logged ?in|please run /?login|oauth token|"
-            r"credit balance is too low|please sign in|authentication required|unauthenticated",
+            r"credit balance is too low",
             re.I,
         ),
         "auth",
         False,
     ),
     (
+        # The third command's own words and status, matched exactly as it prints them, so a
+        # model writing about sign-in in its answer is not taken for a refused sign-in.
+        re.compile(r"Please sign in to|Authentication required\.|\bUNAUTHENTICATED\b"),
+        "auth",
+        False,
+    ),
+    (
         re.compile(
-            r"rate[ _-]?limit|\b429\b|too many requests|overloaded|\b529\b|quota|usage limit|"
-            r"resource[ _-]?exhausted",
+            r"rate[ _-]?limit|\b429\b|too many requests|overloaded|\b529\b|quota|usage limit",
             re.I,
         ),
         "rate_limited",
         True,
     ),
+    (re.compile(r"\bRESOURCE_EXHAUSTED\b"), "rate_limited", True),
     (
         re.compile(
             r"model[ _-]?not[ _-]?found|not_found_error|unknown model|invalid model|"
