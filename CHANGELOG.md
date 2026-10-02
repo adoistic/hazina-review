@@ -7,6 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.4+antigravity.1] - 2026-10-02
+
+### Added
+
+- `--provider antigravity` runs both model sessions through Google Antigravity's command-line
+  tool, `agy`, pinned to `gemini-3.8-flash-medium` (`--model` picks another; `agy models` lists
+  them). Each session gets a settings folder of its own, deleted afterwards. That folder holds
+  a read-only agent with a random name, which runs no command and inherits no rules, skills or
+  MCP servers, plus settings that deny commands, writes, web pages and MCP tools. `GEMINI.md`,
+  `AGENTS.md`, `.agents/` and the other names `agy` takes as instructions are left out of the
+  copy it reads. Before every session `agy` must list that session's agent, or the session is
+  not started. The model check plants instruction files and fails if the model obeys them. The
+  sign-in check uses `agy models`, which is free. `GEMINI_API_KEY` works instead of a sign-in.
+  Details: docs/antigravity.md.
+- Messages name the command a person types (`agy`) rather than the provider.
+
+### Changed
+
+- The census reads an error the provider gives as a plain string in its JSON answer. It also
+  files `please sign in`, `authentication required`, `unauthenticated` and `resource exhausted`
+  under the existing failure kinds.
+
 ## [0.1.4] - 2026-10-01
 
 ### Fixed

@@ -1,8 +1,12 @@
 # hazina-review
 
 hazina-review measures how much substantial engineering work your repositories hold. It runs
-on your computer, uses your own AI account (Claude or Codex) to read the code, and gives you
-one zip to send to Hazina Labs.
+on your computer, uses your own AI account (Claude, Codex or Antigravity) to read the code, and
+gives you one zip to send to Hazina Labs.
+
+> **This fork adds Google Antigravity** (its `agy` command) as a third AI tool, beside Claude
+> Code and Codex: add `--provider antigravity`. Everything else works as upstream
+> ([sandeepmallareddy/hazina-review](https://github.com/sandeepmallareddy/hazina-review)).
 
 Nothing leaves your computer until you send the zip yourself.
 
@@ -11,10 +15,10 @@ Questions: **[partners@hazinalabs.com](mailto:partners@hazinalabs.com)**
 ## 1. What you need
 
 - Python 3.11 or newer, `git` and `pipx`
-- **One** AI tool, installed and signed in: **Claude Code** or **Codex**
+- **One** AI tool, installed and signed in: **Claude Code**, **Codex** or **Antigravity**
 
-Claude Code is used by default. To use Codex, add `--provider codex` to the commands below.
-hazina-review is tested on macOS and Linux.
+Claude Code is used by default. To use Codex, add `--provider codex` to the commands below; to
+use Antigravity, add `--provider antigravity`. hazina-review is tested on macOS and Linux.
 
 Already have everything? Skip to [Install](#2-install). Otherwise, open the steps you need:
 
@@ -101,17 +105,44 @@ step 3 prints the exact commands.
 
 </details>
 
+<details>
+<summary><b>Antigravity</b> (install and sign in)</summary>
+
+Install the Antigravity command-line tool, `agy` (the Antigravity app alone is not enough):
+
+```bash
+curl -fsSL https://antigravity.google/cli/install.sh | bash      # macOS or Linux
+```
+
+On Windows (PowerShell): `irm https://antigravity.google/cli/install.ps1 | iex`
+
+Open a new terminal, then sign in by starting it once on its own:
+
+```bash
+agy
+```
+
+A browser window opens. Log in with the Google account you use for Antigravity, then leave
+`agy` with `/exit`. Check it worked:
+
+```bash
+agy models      # should list the models, not "Please sign in"
+```
+
+Using an API key instead? Set `GEMINI_API_KEY` in your terminal before you run the tool.
+
+</details>
+
 The AI tool's use is billed to that account: a subscription's usage limits, or API charges.
 
 ## 2. Install
 
 ```bash
-pipx install git+https://github.com/sandeepmallareddy/hazina-review.git@v0.1.4
+pipx install git+https://github.com/adoistic/hazina-review.git@v0.1.4-antigravity.1
 ```
 
-Or download the `.whl` file from the
-[latest release](https://github.com/sandeepmallareddy/hazina-review/releases/latest) and run
-`pipx install ./hazina_review-0.1.4-py3-none-any.whl`.
+This fork's version. Upstream's, without Antigravity, is
+`pipx install git+https://github.com/sandeepmallareddy/hazina-review.git@v0.1.4`.
 
 ## 3. Check your computer
 
@@ -155,7 +186,7 @@ The last lines always say what happened and what to type next.
 | What you see | What to do |
 |---|---|
 | Your account reached its usage limit | When the limit resets, run `hazina-review --resume hazina-review-out`. Finished repositories are kept. |
-| Not signed in | Run `claude auth login` (or `codex login`), then `hazina-review --resume hazina-review-out`. |
+| Not signed in | Run `claude auth login` (or `codex login`, or `agy` on its own), then `hazina-review --resume hazina-review-out`. |
 | A `✗` in the check | Fix what that line says, then run the same command again. Nothing was billed. |
 | The build or tests fail | Nothing to do. Whether it builds is part of the result. |
 | Anything else | Email `hazina-review-out/hazina-review-log.txt` to [partners@hazinalabs.com](mailto:partners@hazinalabs.com). It holds versions, timings and errors, never your code or sign-in details. |
@@ -180,7 +211,8 @@ Then email the zip to **[partners@hazinalabs.com](mailto:partners@hazinalabs.com
 | `--out DIR` | Where to put the results (default `./hazina-review-out`). |
 | `--no-build` | Skip the install, build and tests. Faster, but those results are left empty. |
 | `--provider codex` | Use Codex instead of Claude. |
-| `--model ID` | Use a different model. Defaults: `claude-opus-5` for Claude, `gpt-6-sol` for Codex. |
+| `--provider antigravity` | Use Antigravity (`agy`) instead of Claude. |
+| `--model ID` | Use a different model. Defaults: `claude-opus-5` for Claude, `gpt-6-sol` for Codex, `gemini-3.8-flash-medium` for Antigravity (`agy models` lists the others). |
 | `--resume DIR` | Carry on with a run that stopped. |
 | `--check` | Only check your computer. Add `--skip-model-check` to make it free. |
 
@@ -194,6 +226,12 @@ Then email the zip to **[partners@hazinalabs.com](mailto:partners@hazinalabs.com
   It also names each repository and the company it belongs to.
 - With Claude, the AI can read only that copy. With Codex, its sandbox blocks writes but it
   can read other files your account can read.
+- With Antigravity, the AI is given an agent whose only tools read files, in a settings folder
+  made for each session and deleted afterwards, so nothing of yours configures it and no
+  conversation is kept. It can read only the copy and the history. Files Antigravity would
+  take as instructions (`AGENTS.md`, `GEMINI.md`, `.agents/` and the like) are left out of
+  the copy, so a repository cannot steer its own review. See
+  [docs/antigravity.md](docs/antigravity.md).
 
 Full details: [SECURITY.md](SECURITY.md).
 

@@ -661,9 +661,9 @@ def test_lanes_overlap_share_one_snapshot_and_cleanup_after_both(
     copies = []
     real = snapshot.write_snapshot
 
-    def copy(repo, out):
+    def copy(repo, out, **options):
         copies.append(out)
-        return real(repo, out)
+        return real(repo, out, **options)
 
     def ask(answer):
         def turn(provider, model, prompt, repo, dirs, timeout):

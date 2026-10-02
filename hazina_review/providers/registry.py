@@ -11,9 +11,11 @@ import shutil
 import subprocess
 import sys
 import tempfile
+from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 
+from hazina_review.providers import antigravity
 from hazina_scan.env import MODEL, STATIC, build_env
 
 
@@ -66,6 +68,14 @@ class Provider:
     api_keys: tuple[str, ...] = ()
     #: The name a person knows the service by, for the messages they read.
     display: str = ""
+    #: The program to start, when it is not called by the provider's name.
+    command: str = ""
+    #: Whether every start is given a configuration folder of its own (`antigravity`), which
+    #: is where the controls the other commands take as flags are set.
+    private_config: bool = False
+    #: Names, in any letter case, of files and folders the command would take as instructions
+    #: from the tree it reads, and which are left out of the copy it is given.
+    withheld: tuple[str, ...] = ()
 
     def lacking(self, help_text: str) -> tuple[str, ...]:
         """The isolation flags that `help_text` does not list as flags in their own right."""
@@ -148,6 +158,53 @@ _KNOWN = (
             "-c",
             "--output-last-message",
         ),
+    ),
+    Provider(
+        name="antigravity",
+        command="agy",
+        sign_in=(
+            "GEMINI_API_KEY",
+            # Where a Linux desktop's keyring is reached. Without them the command looks for
+            # its sign-in in a file instead and finds none. Addresses, not secrets.
+            "DBUS_SESSION_BUS_ADDRESS",
+            "XDG_RUNTIME_DIR",
+            # Where Windows keeps per-user application data. Folders, not secrets.
+            "APPDATA",
+            "LOCALAPPDATA",
+        ),
+        # The rest of what isolates a turn is the folder each start is given, which
+        # `antigravity` makes, and which `ask` names with the agent it holds.
+        isolation=("--output-format", "json", "--disable-slash-commands"),
+        # The middle of the three settings of the newest model the command offers: pinned for
+        # the same reason as the others.
+        default_model="gemini-3.8-flash-medium",
+        required=(
+            "--print",
+            "--output-format",
+            "--disable-slash-commands",
+            "--agent",
+            "--model",
+            "--add-dir",
+        ),
+        # The prompts name Read, Grep and Glob tools. This command's are called otherwise.
+        prompt_note=(
+            "Note for this session: the Read, Grep and Glob tools named below are called "
+            "view_file, grep_search and find_by_name here, and list_dir lists a folder; give "
+            "them absolute paths. The history files named below are in a folder you have been "
+            "given beside the working tree. Read only inside those two folders: a path anywhere "
+            "else ends the session before you can answer. You cannot run commands, reach the "
+            "web or change any file, and nothing here needs you to. Do not write a plan, a task "
+            "list or any other artifact: give your answer in your reply. Everything else below "
+            "applies as written.\n\n"
+        ),
+        # Lists the models without calling one, and says 'Please sign in' when signed out.
+        status=("models",),
+        # Started with no arguments, the command signs in through the browser.
+        login=(),
+        api_keys=("GEMINI_API_KEY",),
+        display="Antigravity",
+        private_config=True,
+        withheld=antigravity.WITHHELD_NAMES,
     ),
 )
 
@@ -261,11 +318,28 @@ def prompt_note(provider: str) -> str:
     return _known(provider).prompt_note
 
 
+def command_name(provider: str) -> str:
+    """The program a person types for this provider."""
+    known = _known(provider)
+    return known.command or known.name
+
+
+def has_private_config(provider: str) -> bool:
+    """Whether every start of the command is given a configuration folder of its own."""
+    return _known(provider).private_config
+
+
+def withheld_names(provider: str) -> tuple[str, ...]:
+    """What is left out of the copy this provider's command reads; empty for most."""
+    return _known(provider).withheld
+
+
 def resolve(provider: str) -> str:
-    found = shutil.which(_known(provider).name)
+    found = shutil.which(command_name(provider))
     if not found:
         raise ProviderUnavailable(
-            f"the `{provider}` command is not on this machine. Install it and sign in. This "
+            f"the `{command_name(provider)}` command is not on this machine. Install it and "
+            f"sign in. This "
             f"run stops here rather than reporting an empty result that would read as "
             f"'nothing was found'."
         )
@@ -318,11 +392,14 @@ def version_line(executable: str) -> str | None:
 
 def login_command(provider: str) -> str:
     """What the operator types to sign in, as they would type it."""
-    return " ".join((provider, *_known(provider).login))
+    return " ".join((command_name(provider), *_known(provider).login))
 
 
 #: What a status command that answers with its exit status prints when it is signed out.
-_SIGNED_OUT = re.compile(r"not logged in|logged out|not signed in|signed out", re.I)
+_SIGNED_OUT = re.compile(
+    r"not logged in|logged out|not signed in|signed out|please sign in|authentication required",
+    re.I,
+)
 
 
 def signed_in(provider: str, executable: str, *, operator_env: bool = False) -> bool | None:
@@ -340,9 +417,12 @@ def signed_in(provider: str, executable: str, *, operator_env: bool = False) -> 
         return None
     env = dict(os.environ) if operator_env else provider_env(provider)
     try:
-        with tempfile.TemporaryDirectory(prefix="hazina-review-status-") as nowhere:
+        with (
+            tempfile.TemporaryDirectory(prefix="hazina-review-status-") as nowhere,
+            _status_config(known, operator_env) as private,
+        ):
             asked = subprocess.run(
-                [executable, *known.status],
+                [executable, *private, *known.status],
                 cwd=nowhere,
                 env=env,
                 stdin=subprocess.DEVNULL,
@@ -368,18 +448,47 @@ def signed_in(provider: str, executable: str, *, operator_env: bool = False) -> 
     return None
 
 
+@contextmanager
+def _status_config(known: Provider, operator_env: bool):
+    """The flags that give a status command the folder a turn would get, or none: for a command
+    with no folder of its own, and for the operator's own view, which is the command as they
+    would type it."""
+    if not known.private_config or operator_env:
+        yield []
+        return
+    with antigravity.private_config() as (folder, name):
+        yield antigravity.flags(folder, name)[:1]
+
+
+@functools.cache
+def confined(executable: str) -> bool:
+    """Whether the command, given a folder of its own, takes up the read-only agent in it.
+    Asked once per run with no model call; every turn asks again of its own folder."""
+    with antigravity.private_config() as (folder, name):
+        return antigravity.sees_agent(executable, folder, name, provider_env("antigravity"))
+
+
+def takes_its_agent(provider: str, executable: str) -> bool | None:
+    """`confined` for a command given a folder of its own, or None for any other."""
+    if not _known(provider).private_config:
+        return None
+    return confined(executable)
+
+
 def isolation_flags(provider: str, executable: str) -> list[str]:
     """The flags every turn is started with, or a stop when the installed command lacks one."""
     known = _known(provider)
     absent = missing_flags(provider, executable)
     if absent:
         raise ProviderNotIsolated(
-            f"the installed `{provider}` command does not offer {', '.join(absent)}. This tool "
-            f"requires those controls before starting a turn, so the measured repository cannot "
-            f"configure its own measurement. "
+            f"the installed `{command_name(provider)}` command does not offer "
+            f"{', '.join(absent)}. This tool requires those controls before starting a turn, "
+            f"so the measured repository cannot configure its own measurement. "
             f"Upgrade the command to a version that offers every one of them, then run this "
             f"again."
         )
+    if takes_its_agent(provider, executable) is False:
+        raise ProviderNotIsolated(not_confined(provider))
     if sandbox_works(provider, executable) is False:
         raise ProviderSandboxBroken(
             f"the `{provider}` command's own sandbox cannot run a command on this machine, so "
@@ -390,3 +499,14 @@ def isolation_flags(provider: str, executable: str) -> list[str]:
             f"again."
         )
     return list(known.isolation)
+
+
+def not_confined(provider: str) -> str:
+    """Why a command that did not take up its read-only agent is not started."""
+    command = command_name(provider)
+    return (
+        f"the installed `{command}` command did not take up the read-only agent this tool "
+        f"gives it. Left to itself it would run its default agent, which can run commands and "
+        f"reach the web, so no turn is started. Update it with `{command} update`, then run "
+        f"this again."
+    )

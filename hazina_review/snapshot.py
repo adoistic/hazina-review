@@ -14,6 +14,10 @@ line-ending conversion), so it is not byte-for-byte; and ls-tree states each ent
 before any content is asked for, so a symbolic link or a submodule is passed over by what it
 is rather than picked out of an archive afterwards.
 
+A command that takes instructions from the tree it reads, and has no switch to stop it, is
+given a copy without them: the names its provider lists (`withheld`), as files or as folders
+anywhere in the tree, are left out as the credential-shaped ones are.
+
 One thing IS read from the working tree: which tracked paths are missing from it. A file
 deleted there but not yet committed is still at `HEAD`, and a copy holding it would show the
 agent a file that nobody reading the working tree would find. Those paths are left out.
@@ -42,6 +46,13 @@ def is_credential_path(path: str) -> bool:
         for part in path.split("/")
         for glob in CREDENTIAL_GLOBS
     )
+
+
+def is_withheld(path: str, names: tuple[str, ...]) -> bool:
+    """True when any segment of `path`, the file or a folder above it, is one of `names`,
+    whatever its case."""
+    wanted = {name.lower() for name in names}
+    return bool(wanted) and any(part.lower() in wanted for part in path.split("/"))
 
 
 def is_safe_relative_path(path: str) -> bool:
@@ -151,14 +162,21 @@ def _read_exactly(stream, count: int, sink=None) -> bool:
     return True
 
 
-def write_snapshot(repo: Path, out: Path, *, max_total_bytes: int = 2_000_000_000) -> dict:
+def write_snapshot(
+    repo: Path,
+    out: Path,
+    *,
+    max_total_bytes: int = 2_000_000_000,
+    withheld: tuple[str, ...] = (),
+) -> dict:
     """Write the files tracked at `HEAD` under `out`, and return the counts.
 
     Content comes from git's object store, never from the working tree, so an untracked or
     ignored file cannot enter the copy and neither can an uncommitted edit. A tracked file the
     working tree has deleted stays out as well, counted under `deleted_in_working_tree`, so
     the copy never holds a file the working tree does not. No filter, hook or attribute of
-    the repository's is run to produce it.
+    the repository's is run to produce it. A path with a segment named in `withheld` stays out
+    too, counted under `instruction_paths_withheld`.
 
     `truncated` means the copy is known to be incomplete: the size ceiling was reached, or git
     stopped answering partway. A directory that is not a repository, or has no commit yet,
@@ -170,6 +188,7 @@ def write_snapshot(repo: Path, out: Path, *, max_total_bytes: int = 2_000_000_00
         "files_written": 0,
         "bytes_written": 0,
         "credential_paths_withheld": 0,
+        "instruction_paths_withheld": 0,
         "deleted_in_working_tree": 0,
         "truncated": False,
     }
@@ -179,6 +198,8 @@ def write_snapshot(repo: Path, out: Path, *, max_total_bytes: int = 2_000_000_00
     for oid, path in _tracked_blobs(repo):
         if is_credential_path(path):
             result["credential_paths_withheld"] += 1
+        elif is_withheld(path, withheld):
+            result["instruction_paths_withheld"] += 1
         elif path in gone:
             result["deleted_in_working_tree"] += 1
         elif is_safe_relative_path(path):

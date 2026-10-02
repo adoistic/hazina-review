@@ -189,16 +189,17 @@ def short(seconds: float) -> str:
 def reason(kind: str | None, provider: str, model: str | None) -> str:
     """What happened, as a clause a person reads, for one of the failure kinds."""
     name = registry.display_name(provider)
+    command = registry.command_name(provider)
     said = {
         "rate_limited": f"{name}'s usage limit was reached",
         "auth": f"{name} refused the sign-in",
         "model_unavailable": f"the account cannot use the model {model}",
-        "cli_missing": f"the `{provider}` command could not be found or started",
-        NOT_ISOLATED: f"the `{provider}` command lacks a safety switch this tool needs",
+        "cli_missing": f"the `{command}` command could not be found or started",
+        NOT_ISOLATED: f"the `{command}` command lacks a safety switch this tool needs",
         "timeout": "it ran out of time",
         "no_json": "the model's answer could not be read",
-        "crashed": f"the `{provider}` command stopped before it answered",
-        "unknown": f"the `{provider}` command failed without saying why",
+        "crashed": f"the `{command}` command stopped before it answered",
+        "unknown": f"the `{command}` command failed without saying why",
         INTERRUPTED: "the run was stopped with Ctrl-C",
         ERROR: "this tool ran into an unexpected problem",
         GONE: "its folder is no longer there",
@@ -261,6 +262,7 @@ def _dash(stream) -> str:
 def _stopped(kind: str, provider: str, model: str | None, detail: str | None) -> list[str]:
     """The first line of a stop message, and what to do before resuming."""
     name = registry.display_name(provider)
+    command = registry.command_name(provider)
     if kind == "rate_limited":
         return [
             f"The run stopped: your {name} account reached its usage limit.",
@@ -283,19 +285,19 @@ def _stopped(kind: str, provider: str, model: str | None, detail: str | None) ->
         return [
             f"The run stopped: {detail}"
             if detail
-            else f"The run stopped: the `{provider}` command could not be found or started.",
-            f"Install `{provider}`, make sure it is on your PATH, and sign in. Then carry on with:",
+            else f"The run stopped: the `{command}` command could not be found or started.",
+            f"Install `{command}`, make sure it is on your PATH, and sign in. Then carry on with:",
         ]
     if kind == NOT_ISOLATED:
         first = (
             f"The run stopped: {detail}"
             if detail
             else (
-                f"The run stopped: the installed `{provider}` command lacks a safety switch this "
+                f"The run stopped: the installed `{command}` command lacks a safety switch this "
                 "tool needs."
             )
         )
-        return [first, f"Upgrade `{provider}` to its latest version if needed. Then carry on with:"]
+        return [first, f"Upgrade `{command}` to its latest version if needed. Then carry on with:"]
     return ["The run was stopped with Ctrl-C.", "To carry on where it stopped:"]
 
 

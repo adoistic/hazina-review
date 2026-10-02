@@ -33,6 +33,7 @@ from hazina_review.providers.registry import (
     ProviderUnavailable,
     isolation_flags,
     resolve,
+    withheld_names,
 )
 from hazina_scan import cli as scan
 from hazina_scan import env, fileguard, orchestrator
@@ -421,7 +422,7 @@ def _model_lanes(
         )
         git_seconds = max(1, deadline.slice(orchestrator.DEFAULT_TIMEOUT_GIT, reserve))
         with clock.lane("snapshot"), env.git_ceiling(git_seconds):
-            copied = snapshot.write_snapshot(repo, copy)
+            copied = snapshot.write_snapshot(repo, copy, withheld=withheld_names(provider))
         if copied["truncated"]:
             return no_turn("copy_incomplete")
         if not copied["files_written"]:

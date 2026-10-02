@@ -85,7 +85,7 @@ _KIND_RULES: tuple[tuple[re.Pattern, str, bool], ...] = (
         re.compile(
             r"invalid[ _-]?api[ _-]?key|authentication_error|permission_error|unauthorized|"
             r"\b40[13]\b|not logged ?in|please run /?login|oauth token|"
-            r"credit balance is too low",
+            r"credit balance is too low|please sign in|authentication required|unauthenticated",
             re.I,
         ),
         "auth",
@@ -93,7 +93,8 @@ _KIND_RULES: tuple[tuple[re.Pattern, str, bool], ...] = (
     ),
     (
         re.compile(
-            r"rate[ _-]?limit|\b429\b|too many requests|overloaded|\b529\b|quota|usage limit",
+            r"rate[ _-]?limit|\b429\b|too many requests|overloaded|\b529\b|quota|usage limit|"
+            r"resource[ _-]?exhausted",
             re.I,
         ),
         "rate_limited",
@@ -116,6 +117,14 @@ _KIND_RULES: tuple[tuple[re.Pattern, str, bool], ...] = (
             r"internal server error|api_error|apiconnection",
             re.I,
         ),
+        "crashed",
+        True,
+    ),
+    (
+        # The third command's `AGY_ERROR` line: a canonical status in capitals, and whether
+        # the failure is worth another try. Matched in capitals only, so a model's own words
+        # are not taken for it.
+        re.compile(r'"retryable"\s*:\s*true|\bUNAVAILABLE\b|\bDEADLINE_EXCEEDED\b'),
         "crashed",
         True,
     ),
@@ -218,7 +227,20 @@ def envelope_error(stdout: str) -> str:
     if isinstance(error, dict):
         said = error.get("message")
         return said if isinstance(said, str) else json.dumps(error)[:DETAIL_LIMIT]
+    if isinstance(error, str) and error.strip():
+        # The third command's envelope says why in a sentence of its own.
+        return error
     return ""
+
+
+def stopped_at_a_refusal(stdout: str) -> bool:
+    """Whether the command says its turn ended at an action it was not allowed to take (the
+    third command's `denied_actions`), which leaves the turn with no answer."""
+    try:
+        envelope = json.loads(stdout)
+    except (ValueError, TypeError, RecursionError):
+        return False
+    return isinstance(envelope, dict) and bool(envelope.get("denied_actions"))
 
 
 def read_turn(turn: Turn, provider: str, seconds: float):
@@ -241,7 +263,9 @@ def read_turn(turn: Turn, provider: str, seconds: float):
     answer = census_answer(turn.stdout, provider)
     if answer is not None:
         return answer, None, False, "", turn.returncode
-    kind, again = "no_json", False
+    # An agent stopped at an action it may not take ends with no answer, and the next turn
+    # may well not try it.
+    kind, again = "no_json", stopped_at_a_refusal(turn.stdout)
     refusal = envelope_error(turn.stdout)
     if refusal:
         named, named_again = classify(0, refusal, "")

@@ -29,6 +29,8 @@ def _done(stdout: str, code: int = 0, stderr: str = ""):
 def _wire(monkeypatch, result):
     monkeypatch.setattr(ask_mod, "resolve", lambda p: f"/usr/bin/{p}")
     monkeypatch.setattr(ask_mod, "isolation_flags", lambda p, e: ["--safe-mode"])
+    # A command given a folder of its own lists the agent in it before each turn.
+    monkeypatch.setattr(ask_mod.antigravity, "sees_agent", lambda *a: True)
     if isinstance(result, Exception):
 
         def _raise(*a, **k):

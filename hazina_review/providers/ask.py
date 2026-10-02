@@ -6,10 +6,20 @@ import json
 import re
 import subprocess
 import tempfile
+from contextlib import ExitStack
 from dataclasses import dataclass
 from pathlib import Path
 
-from hazina_review.providers.registry import PROVIDERS, isolation_flags, provider_env, resolve
+from hazina_review.providers import antigravity
+from hazina_review.providers.registry import (
+    PROVIDERS,
+    ProviderNotIsolated,
+    has_private_config,
+    isolation_flags,
+    not_confined,
+    provider_env,
+    resolve,
+)
 from hazina_scan.env import MODEL, run
 
 #: Named to the command as the tools it may use without asking, and a headless turn has nobody
@@ -20,7 +30,7 @@ TOOLS = "Read Grep Glob"
 
 #: Where each command's JSON envelope keeps the model's own words. A command with no entry
 #: writes its final message to a file, which is read as it stands.
-ANSWER_KEYS = {PROVIDERS[0]: "result"}
+ANSWER_KEYS = {PROVIDERS[0]: "result", PROVIDERS[2]: "response"}
 
 
 def build_argv(
@@ -32,8 +42,19 @@ def build_argv(
     *,
     provider: str = "claude",
     output_path: Path | None = None,
+    private: list[str] | None = None,
 ) -> list[str]:
-    """Build an argument list without invoking a shell; the second CLI reads prompt on stdin."""
+    """Build an argument list without invoking a shell; the second CLI reads prompt on stdin.
+
+    `private` is what points a command given a folder of its own at that folder and its agent
+    (`antigravity.flags`); the third command is not started without it."""
+    if has_private_config(provider):
+        if not private or model is None:
+            raise ValueError("this provider needs its own folder and an explicit model")
+        argv = [executable, *private, "-p", prompt, *flags, "--model", model]
+        for d in antigravity.spellings(read_dirs):
+            argv += ["--add-dir", str(d)]
+        return argv
     if provider == "codex":
         if output_path is None or model is None:
             raise ValueError("this provider needs an output path and an explicit model")
@@ -189,35 +210,47 @@ def ask(
     # harmless base, and refused if denied. The home directory is the operator's real one:
     # a command signed in with its own login keeps that login there.
     env = provider_env(provider)
-    output_path = None
-    try:
-        if provider == "codex":
-            with tempfile.NamedTemporaryFile(
-                prefix="hazina-review-codex-", suffix=".txt", delete=False
-            ) as handle:
-                output_path = Path(handle.name)
-        argv = build_argv(
-            executable,
-            model,
-            prompt,
-            [repo, *read_dirs],
-            flags,
-            provider=provider,
-            output_path=output_path,
-        )
-        input_kwargs = {"input_text": prompt} if provider == "codex" else {}
-        proc = run(argv, domain=MODEL, cwd=repo, env=env, timeout=timeout, **input_kwargs)
-        stdout = proc.stdout or ""
-        if output_path is not None and output_path.exists():
-            stdout = output_path.read_text(encoding="utf-8", errors="replace")
-    except subprocess.TimeoutExpired as expired:
-        return Turn("timeout", stdout=_text(expired.stdout), stderr=_text(expired.stderr))
-    except FileNotFoundError as missing:
-        return Turn("missing", error=missing)
-    except (OSError, ValueError) as refused:
-        # Not executable, or an argument the platform will not pass.
-        return Turn("unstartable", error=refused)
-    finally:
-        if output_path is not None:
-            output_path.unlink(missing_ok=True)
+    with ExitStack() as stack:
+        private = None
+        if has_private_config(provider):
+            # A folder of this turn's own, removed with everything in it once the turn is
+            # over. The command runs its default agent, with every tool, when it cannot find
+            # the one it is told to, so the turn is not started unless it can.
+            read = antigravity.readable([repo, *read_dirs])
+            folder, name = stack.enter_context(antigravity.private_config(read))
+            if not antigravity.sees_agent(executable, folder, name, env):
+                raise ProviderNotIsolated(not_confined(provider))
+            private = antigravity.flags(folder, name)
+        output_path = None
+        try:
+            if provider == "codex":
+                with tempfile.NamedTemporaryFile(
+                    prefix="hazina-review-codex-", suffix=".txt", delete=False
+                ) as handle:
+                    output_path = Path(handle.name)
+            argv = build_argv(
+                executable,
+                model,
+                prompt,
+                [repo, *read_dirs],
+                flags,
+                provider=provider,
+                output_path=output_path,
+                private=private,
+            )
+            input_kwargs = {"input_text": prompt} if provider == "codex" else {}
+            proc = run(argv, domain=MODEL, cwd=repo, env=env, timeout=timeout, **input_kwargs)
+            stdout = proc.stdout or ""
+            if output_path is not None and output_path.exists():
+                stdout = output_path.read_text(encoding="utf-8", errors="replace")
+        except subprocess.TimeoutExpired as expired:
+            return Turn("timeout", stdout=_text(expired.stdout), stderr=_text(expired.stderr))
+        except FileNotFoundError as missing:
+            return Turn("missing", error=missing)
+        except (OSError, ValueError) as refused:
+            # Not executable, or an argument the platform will not pass.
+            return Turn("unstartable", error=refused)
+        finally:
+            if output_path is not None:
+                output_path.unlink(missing_ok=True)
     return Turn("exited", proc.returncode, stdout, proc.stderr or "")

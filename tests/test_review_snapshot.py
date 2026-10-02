@@ -28,6 +28,7 @@ def test_a_tracked_file_is_present_with_identical_bytes(tmp_path, repo_builder):
         "files_written": 2,
         "bytes_written": len(b"print('hello')\n") + len(b"# Demo\n"),
         "credential_paths_withheld": 0,
+        "instruction_paths_withheld": 0,
         "deleted_in_working_tree": 0,
         "truncated": False,
     }

@@ -26,8 +26,8 @@ from typing import TextIO
 
 from hazina_review import support
 from hazina_review.lanes.census import classify, envelope_error
+from hazina_review.providers import antigravity, registry
 from hazina_review.providers import ask as ask_mod
-from hazina_review.providers import registry
 from hazina_scan import cli as scan
 from hazina_scan import env
 
@@ -83,6 +83,7 @@ def _skipped(name: str, why: str) -> Result:
 
 
 def check_installed(provider: str) -> tuple[Result, str | None]:
+    command = registry.command_name(provider)
     try:
         executable = registry.resolve(provider)
     except registry.ProviderUnavailable:
@@ -90,42 +91,50 @@ def check_installed(provider: str) -> tuple[Result, str | None]:
             Result(
                 INSTALLED,
                 FAILED,
-                f"The `{provider}` command was not found on this machine.",
-                f"Install `{provider}`, make sure it is on your PATH, and sign in.",
+                f"The `{command}` command was not found on this machine.",
+                f"Install `{command}`, make sure it is on your PATH, and sign in.",
             ),
             None,
         )
-    return Result(INSTALLED, OK, f"`{provider}` is installed at {executable}."), executable
+    return Result(INSTALLED, OK, f"`{command}` is installed at {executable}."), executable
 
 
 def check_flags(provider: str, executable: str) -> Result:
+    command = registry.command_name(provider)
     absent = registry.missing_flags(provider, executable)
     if absent:
         return Result(
             FLAGS,
             FAILED,
-            f"The installed `{provider}` does not offer {', '.join(absent)}.",
-            f"Upgrade `{provider}` to its latest version.",
+            f"The installed `{command}` does not offer {', '.join(absent)}.",
+            f"Upgrade `{command}` to its latest version.",
+        )
+    if registry.takes_its_agent(provider, executable) is False:
+        return Result(
+            FLAGS,
+            FAILED,
+            f"The installed `{command}` did not take up the read-only agent this tool gives it.",
+            f"Update it with `{command} update`, then run this again.",
         )
     return Result(FLAGS, OK, "The installed version offers every flag this tool needs.")
 
 
 def check_signed_in(provider: str, executable: str) -> Result:
+    command = registry.command_name(provider)
     keys = registry.api_key_names(provider)
     if registry.api_key_set(provider):
         return Result(SIGNED_IN, OK, "An API key for this provider is set in the environment.")
     login = registry.login_command(provider)
     answer = registry.signed_in(provider, executable)
     if answer is True:
-        return Result(SIGNED_IN, OK, f"`{provider}` says it is signed in.")
+        return Result(SIGNED_IN, OK, f"`{command}` says it is signed in.")
     if answer is False and registry.signed_in(provider, executable, operator_env=True) is True:
         # Signed in as the operator sees it, signed out as this tool starts the command: the
         # command needs something from the environment this tool does not hand it.
         return Result(
             SIGNED_IN,
             FAILED,
-            f"`{provider}` is signed in, but hazina-review cannot see the sign-in on this "
-            "computer.",
+            f"`{command}` is signed in, but hazina-review cannot see the sign-in on this computer.",
             "This is a problem with hazina-review, not your account. Please copy these check "
             f"results into an email to {support.SUPPORT_ADDRESS} so we can fix it.",
         )
@@ -133,13 +142,13 @@ def check_signed_in(provider: str, executable: str) -> Result:
         return Result(
             SIGNED_IN,
             FAILED,
-            f"`{provider}` says it is not signed in.",
+            f"`{command}` says it is not signed in.",
             f"Sign in with `{login}`" + (f", or set {' or '.join(keys)}." if keys else "."),
         )
     return Result(
         SIGNED_IN,
         WARNING,
-        f"Could not verify the sign-in: this version of `{provider}` did not answer a status "
+        f"Could not verify the sign-in: this version of `{command}` did not answer a status "
         "request.",
         f"Make sure you are signed in (`{login}`); the model check below will confirm it.",
     )
@@ -407,9 +416,14 @@ def check_model(provider: str, model: str | None, *, seconds: int = MODEL_SECOND
             "Pass a model your account can use with --model.",
         )
     token = f"hazina-{secrets.token_hex(8)}"
+    # For a command that would take instructions from the tree it reads, the folder holds some,
+    # each asking for this word instead: the word coming back means it obeyed them.
+    obeyed = f"obeyed-{secrets.token_hex(8)}" if registry.withheld_names(provider) else None
     with tempfile.TemporaryDirectory(prefix="hazina-review-check-") as folder:
         where = Path(folder)
         (where / PROBE_NAME).write_text(token + "\n", encoding="utf-8")
+        if obeyed:
+            antigravity.write_instruction_files(where, obeyed)
         prompt = (
             f"Read the file {PROBE_NAME} in the folder {where}. Reply with only the text it "
             "contains, and nothing else."
@@ -426,7 +440,17 @@ def check_model(provider: str, model: str | None, *, seconds: int = MODEL_SECOND
     if turn.returncode != 0:
         kind, _ = classify(turn.returncode, turn.stdout, turn.stderr)
         return _failed_as(kind, provider, model, seconds)
-    if token in _answer_text(turn.stdout, provider):
+    answer = _answer_text(turn.stdout, provider)
+    if obeyed and obeyed in answer:
+        command = registry.command_name(provider)
+        return Result(
+            MODEL,
+            FAILED,
+            f"`{command}` followed instruction files in the folder it was reading, so a "
+            "repository could steer its own review.",
+            f"Update it with `{command} update`, then run this again.",
+        )
+    if token in answer:
         return Result(MODEL, OK, f"{model} answered and read a file.")
     refusal = envelope_error(turn.stdout)
     if refusal:
